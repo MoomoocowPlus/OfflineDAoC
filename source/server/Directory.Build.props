@@ -1,0 +1,13 @@
+<Project>
+  <!-- System.Data.SQLite: stock-libsqlite3 ("managed only") build, needed on linux-arm64
+       where the nuget stub package ships no SQLite.Interop natives (win/linux-x64/osx only).
+       This dll P/Invokes standard sqlite3_* (sqlite3_open_v2 etc) -> system libsqlite3.so.0.
+       Referenced here so CoreDatabase/GameServer/Tests all compile against the SAME
+       assembly identity (plain References are not transitive across ProjectReferences). -->
+  <ItemGroup>
+    <Reference Include="System.Data.SQLite">
+      <HintPath>$(MSBuildThisFileDirectory)sharedModules/SQLite/managedOnly/System.Data.SQLite.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
