@@ -160,6 +160,7 @@ namespace DOL.GS
             AddStep(DailyQuestService.Instance, DailyQuestService.Instance.Tick);
             AddStep(WeeklyQuestService.Instance, WeeklyQuestService.Instance.Tick);
             AddStep(MonthlyQuestService.Instance, MonthlyQuestService.Instance.Tick);
+            AddStep(WorldSnapshotService.Instance, WorldSnapshotService.Instance.Tick);
 
             GameServiceContext.Current.Value = null;
 
