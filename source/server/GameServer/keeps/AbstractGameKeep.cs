@@ -1049,6 +1049,7 @@ namespace DOL.GS.Keeps
 			LastAttackedByEnemyTick = 0;
 			StartCombatTick = 0;
 
+			eRealm previousRealm = Realm;
 			Realm = realm;
 
 			PlayerMgr.BroadcastCapture(this);
@@ -1112,7 +1113,7 @@ namespace DOL.GS.Keeps
 
 			SaveIntoDatabase();
 
-			GameEventMgr.Notify(KeepEvent.KeepTaken, new KeepEventArgs(this));
+			GameEventMgr.Notify(KeepEvent.KeepTaken, new KeepEventArgs(this, previousRealm));
 
 		}
 

@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using DOL.Events;
+using DOL.GS.Keeps;
 using DOL.Logging;
 
 namespace DOL.GS
@@ -26,6 +27,11 @@ namespace DOL.GS
     ///   out: {"type":"snapshot","tick":N,"utc":"..","regions":[{"id":..,"name":..,"p":..,"b":..,"n":..,"pA":..,"pM":..,"pH":..}]}
     ///   in : {"cmd":"ping"}                      -> {"type":"pong","tick":N}
     ///        {"cmd":"snapshot"}                  -> one immediate snapshot to that client
+    ///        {"cmd":"entities","region":<ushort>} -> snapshot v1 per-region entity dump (on-demand only)
+    ///   out (v1): {"type":"entities","tick":N,"region":id,"count":n,"total":n,"truncated":bool,
+    ///              "entities":[{"id","name","kind","realm","x","y","z","hp","alive","target"}]}
+    ///              {"type":"event","kind":"death|keep_taken|relic_stolen|relic_mounted","tick":N,
+    ///               "utc":"..","data":{...}}   -- reward feed; new clients replay last <=64 events.
     /// MessagePack + richer commands arrive with Phase 5.3's executor; JSON first for debuggability (nc -U).
     /// </summary>
     public sealed class WorldSnapshotService : GameServiceBase
@@ -83,12 +89,21 @@ namespace DOL.GS
         private readonly ConcurrentQueue<(GmClient Client, string Line)> _commands = new();
         private long _tickCounter;
 
+        // Reward feed (snapshot v1): bounded event ring + handler registration latch.
+        private const int MaxEntitiesPerReply = 2000;
+        private const int MaxRingEvents = 512;
+        private const int ReplayOnConnect = 64;
+        private static readonly ConcurrentQueue<string> _eventRing = new();
+        private static readonly object _feedSync = new();
+        private static bool _feedRegistered;
+
         public long TickCounter => Interlocked.Read(ref _tickCounter);
         public int ClientCount => _clients.Count;
 
         [GameServerStartedEvent]
         public static void Start(DOLEvent e, object sender, EventArgs args)
         {
+            RegisterFeedHandlers();
             Instance.StartListener();
         }
 
@@ -96,6 +111,7 @@ namespace DOL.GS
         public static void Stop(DOLEvent e, object sender, EventArgs args)
         {
             Instance.StopListener();
+            UnregisterFeedHandlers();
         }
 
         private void StartListener()
@@ -164,6 +180,22 @@ namespace DOL.GS
 
                 GmClient client = new(socket);
                 _clients.TryAdd(client, 0);
+
+                // Replay last <=64 buffered events before the reader thread starts; the send
+                // lock keeps live fan-out lines from interleaving mid-replay. Ceiling: an event
+                // fanning out between TryAdd and the ring snapshot can be delivered twice
+                // (sub-millisecond window; a gap is possible neither way round this ordering).
+                lock (client.SendLock)
+                {
+                    string[] replay = _eventRing.ToArray();
+                    int start = Math.Max(0, replay.Length - ReplayOnConnect);
+
+                    for (int i = start; i < replay.Length; i++)
+                        client.SendLine(replay[i]);
+
+                    if (log.IsDebugEnabled)
+                        log.Debug($"{nameof(WorldSnapshotService)} replayed {replay.Length - start} events");
+                }
 
                 Thread reader = new(() => ReadLoop(client))
                 {
@@ -268,6 +300,9 @@ namespace DOL.GS
                 case "snapshot":
                     client.SendLine(BuildSnapshotJson());
                     break;
+                case "entities":
+                    client.SendLine(BuildEntitiesJson(doc.RootElement));
+                    break;
                 default:
                     client.SendLine(JsonSerializer.Serialize(new { type = "error", message = $"unknown cmd '{cmd}'" }));
                     break;
@@ -354,5 +389,249 @@ namespace DOL.GS
                 regions
             });
         }
+
+        private static string KindOf(GameObject obj) => obj is GameBot ? "bot" : obj is GamePlayer ? "player" : "npc";
+
+        private static string IdOf(GameObject obj) => obj.ObjectID != 0 ? obj.ObjectID.ToString() : obj.InternalID ?? "";
+
+        /// <summary>Game-loop thread only. Snapshot v1: on-demand per-region entity dump; no per-tick cost.</summary>
+        private static string BuildEntitiesJson(JsonElement root)
+        {
+            if (!root.TryGetProperty("region", out JsonElement regionElement)
+                || regionElement.ValueKind != JsonValueKind.Number
+                || !regionElement.TryGetUInt16(out ushort regionId))
+                return JsonSerializer.Serialize(new { type = "error", message = "missing region id" });
+
+            if (!WorldMgr.Regions.TryGetValue(regionId, out Region region) || region == null)
+                return JsonSerializer.Serialize(new { type = "error", message = $"no region {regionId}" });
+
+            GameObject[] objects = region.Objects;
+            List<object> entities = new();
+            int total = 0;
+
+            if (objects != null)
+            {
+                for (int i = 0; i < objects.Length; i++)
+                {
+                    GameObject obj = objects[i];
+
+                    if (obj == null)
+                        continue;
+
+                    total++;
+
+                    if (entities.Count >= MaxEntitiesPerReply)
+                        continue;
+
+                    entities.Add(BuildEntity(regionId, i, obj));
+                }
+            }
+
+            return JsonSerializer.Serialize(new
+            {
+                type = "entities",
+                tick = Instance.TickCounter,
+                region = regionId,
+                count = entities.Count,
+                total,
+                truncated = total > entities.Count,
+                entities
+            });
+        }
+
+        private static object BuildEntity(ushort regionId, int index, GameObject obj)
+        {
+            // ponytail: hp 1.0 / alive true for non-living objects (doors etc.); refine if NCA needs them
+            double hp = 1.0;
+            bool alive = true;
+            string target = null;
+
+            if (obj is GameLiving living)
+            {
+                int maxHealth = living.MaxHealth;
+                hp = maxHealth > 0 ? Math.Clamp(living.Health / (double)maxHealth, 0.0, 1.0) : 1.0;
+                alive = living.IsAlive;
+
+                if (living.TargetObject != null)
+                    target = living.TargetObject.ObjectID.ToString();
+            }
+
+            return new
+            {
+                id = obj.ObjectID != 0 ? obj.ObjectID.ToString() : $"{regionId}:{index}",
+                name = obj.Name ?? "",
+                kind = KindOf(obj),
+                realm = (int)obj.Realm,
+                x = obj.X,
+                y = obj.Y,
+                z = obj.Z,
+                hp,
+                alive,
+                target
+            };
+        }
+
+        #region Reward / event feed (snapshot v1)
+
+        private static void RegisterFeedHandlers()
+        {
+            while (_eventRing.TryDequeue(out _)) { } // never replay a previous server session's events
+
+            lock (_feedSync)
+            {
+                if (_feedRegistered)
+                    return;
+
+                // The legacy chain throws on removing an absent delegate; pair add/remove with the flag.
+                GameEventMgr.AddHandlerUnique(GameLivingEvent.Dying, OnLivingDying);
+                GameEventMgr.AddHandlerUnique(KeepEvent.KeepTaken, OnKeepTaken);
+                GameEventMgr.AddHandlerUnique(RelicPadEvent.RelicStolen, OnRelicPadChanged);
+                GameEventMgr.AddHandlerUnique(RelicPadEvent.RelicMounted, OnRelicPadChanged);
+                _feedRegistered = true;
+            }
+        }
+
+        private static void UnregisterFeedHandlers()
+        {
+            lock (_feedSync)
+            {
+                if (!_feedRegistered)
+                    return;
+
+                GameEventMgr.RemoveHandler(GameLivingEvent.Dying, OnLivingDying);
+                GameEventMgr.RemoveHandler(KeepEvent.KeepTaken, OnKeepTaken);
+                GameEventMgr.RemoveHandler(RelicPadEvent.RelicStolen, OnRelicPadChanged);
+                GameEventMgr.RemoveHandler(RelicPadEvent.RelicMounted, OnRelicPadChanged);
+                _feedRegistered = false;
+            }
+        }
+
+        /// <summary>
+        /// Serialize once, ring-buffer (cap MaxRingEvents, oldest dropped), fan out to connected
+        /// clients. Called from the notifying thread (death/keep/relic fire on the game-loop
+        /// thread); must never throw into it — every failure is swallowed at Debug.
+        /// </summary>
+        private void EmitEvent(string kind, object data)
+        {
+            try
+            {
+                string line = JsonSerializer.Serialize(new
+                {
+                    type = "event",
+                    kind,
+                    tick = TickCounter,
+                    utc = DateTime.UtcNow.ToString("O"),
+                    data
+                });
+
+                _eventRing.Enqueue(line);
+                while (_eventRing.Count > MaxRingEvents && _eventRing.TryDequeue(out _)) { }
+
+                foreach (GmClient client in _clients.Keys)
+                    client.SendLine(line);
+            }
+            catch (Exception ex)
+            {
+                if (log.IsDebugEnabled)
+                    log.Debug($"{nameof(WorldSnapshotService)} event '{kind}' dropped", ex);
+            }
+        }
+
+        private static void OnLivingDying(DOLEvent e, object sender, EventArgs args)
+        {
+            try
+            {
+                // Player-side deaths only; NPC grinding deaths would flood the ring.
+                if (sender is not (GamePlayer or GameBot) || args is not DyingEventArgs dying)
+                    return;
+
+                GameObject victim = (GameObject)sender;
+                GameObject killer = dying.Killer;
+
+                Instance.EmitEvent("death", new
+                {
+                    victim = IdOf(victim),
+                    victimName = victim.Name ?? "",
+                    victimKind = KindOf(victim),
+                    victimRealm = (int)victim.Realm,
+                    killer = killer == null ? null : IdOf(killer),
+                    killerName = killer?.Name,
+                    killerKind = killer == null ? null : KindOf(killer),
+                    killerRealm = killer == null ? (int?)null : (int)killer.Realm,
+                    region = victim.CurrentRegionID,
+                    x = victim.X,
+                    y = victim.Y,
+                    z = victim.Z
+                });
+            }
+            catch (Exception ex)
+            {
+                if (log.IsDebugEnabled)
+                    log.Debug($"{nameof(WorldSnapshotService)} death feed failed", ex);
+            }
+        }
+
+        private static void OnKeepTaken(DOLEvent e, object sender, EventArgs args)
+        {
+            try
+            {
+                if (args is not KeepEventArgs { Keep: not null } taken)
+                    return;
+
+                AbstractGameKeep keep = taken.Keep;
+
+                Instance.EmitEvent("keep_taken", new
+                {
+                    keepId = keep.KeepID,
+                    name = keep.Name ?? "",
+                    oldRealm = (int)taken.Realm,
+                    newRealm = (int)keep.Realm,
+                    region = keep.Region,
+                    x = keep.X,
+                    y = keep.Y,
+                    z = keep.Z
+                });
+            }
+            catch (Exception ex)
+            {
+                if (log.IsDebugEnabled)
+                    log.Debug($"{nameof(WorldSnapshotService)} keep feed failed", ex);
+            }
+        }
+
+        private static void OnRelicPadChanged(DOLEvent e, object sender, EventArgs args)
+        {
+            try
+            {
+                if (sender is not GameRelicPad pad || args is not RelicPadEventArgs { Relic: not null } changed)
+                    return;
+
+                bool stolen = e == RelicPadEvent.RelicStolen;
+                GameRelic relic = changed.Relic;
+                GameLiving actor = changed.Actor;
+                GameObject at = actor != null ? actor : pad;
+
+                Instance.EmitEvent(stolen ? "relic_stolen" : "relic_mounted", new
+                {
+                    relic = relic.Name ?? "",
+                    type = relic.RelicType.ToString(),
+                    realmFrom = stolen ? (int)pad.Realm : (int)(actor?.Realm ?? eRealm.None),
+                    realmTo = stolen ? (int)(actor?.Realm ?? eRealm.None) : (int)pad.Realm,
+                    actor = actor == null ? null : IdOf(actor),
+                    actorName = actor?.Name,
+                    region = at.CurrentRegionID,
+                    x = at.X,
+                    y = at.Y,
+                    z = at.Z
+                });
+            }
+            catch (Exception ex)
+            {
+                if (log.IsDebugEnabled)
+                    log.Debug($"{nameof(WorldSnapshotService)} relic feed failed", ex);
+            }
+        }
+
+        #endregion
     }
 }
