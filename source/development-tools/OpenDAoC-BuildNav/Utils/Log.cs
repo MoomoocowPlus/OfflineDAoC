@@ -20,7 +20,6 @@
 using System;
 using System.Drawing;
 using System.IO;
-using System.Windows.Forms;
 using CEM.Core;
 
 namespace CEM.Utils {
@@ -155,7 +154,7 @@ namespace CEM.Utils {
     public static void Fatal(string text, params object[] args) {
       text = args.Length == 0 ? text : string.Format(text, args);
       WriteLine(Color.Red, "FATAL", text);
-      MessageBox.Show(text, "Meh :(", MessageBoxButtons.OK, MessageBoxIcon.Error);
+      // ponytail: MessageBox removed (WinForms, Linux port) - log line above is enough
     }
 
     /// <summary>

@@ -121,7 +121,13 @@ namespace CEM.World
             if (File.Exists(nav))
                 File.Delete(nav);
 
-            var start = new ProcessStartInfo("RecastDemo.exe")
+            // ponytail: absolute path + "./" fallback - .NET on Linux resolves bare names via PATH only,
+            // the original relied on Windows searching the working directory (base/).
+            string recastExe = Path.Combine(AppContext.BaseDirectory, "base", "RecastDemo.exe");
+            if (!File.Exists(recastExe))
+                recastExe = Path.GetFullPath("RecastDemo.exe");
+
+            var start = new ProcessStartInfo(recastExe)
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,

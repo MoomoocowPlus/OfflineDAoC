@@ -23,7 +23,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
-using System.Windows.Forms;
 using CEM.Utils;
 
 namespace CEM.Core {
@@ -38,7 +37,9 @@ namespace CEM.Core {
     /// </summary>
     public static void Init() {
       // Set working dir
-      Environment.CurrentDirectory = Path.Combine(Path.GetDirectoryName(Application.ExecutablePath), ROOT_DIR);
+      // ponytail: Application.ExecutablePath (WinForms) replaced with entry-assembly location for Linux
+      string exePath = Assembly.GetEntryAssembly()?.Location ?? Environment.ProcessPath ?? AppContext.BaseDirectory;
+      Environment.CurrentDirectory = Path.Combine(Path.GetDirectoryName(exePath) ?? ".", ROOT_DIR);
       //Win32.SetDllDirectory(IntPtr.Size == 8 ? "x64" : "x86");
       AppDomain.CurrentDomain.AssemblyResolve += (o, rargs) => {
         Assembly loaded = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(x => x.FullName == rargs.Name);

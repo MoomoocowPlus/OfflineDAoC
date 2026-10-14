@@ -27,12 +27,10 @@ namespace CEM
 
         public static List<string> NifIgnorelist { get; private set; }
 
+        // ponytail: WinForms Application.* calls removed (Linux port; no GUI here)
         [STAThread]
         public static void Main(string[] args)
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(true);
-
             // Command & CVar core
             Core.Core.Init();
 

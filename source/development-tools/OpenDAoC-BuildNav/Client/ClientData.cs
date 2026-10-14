@@ -121,7 +121,14 @@ namespace CEM.Client {
       }
 
       // Return early if the file does not exist
-      if (!File.Exists(fileSystemPath)) return null;
+      if (!File.Exists(fileSystemPath))
+      {
+        // ponytail: Linux is case-sensitive but all lookups are lowercased above while the
+        // DAoC client ships mixed-case folders (ZONE008, Nifs, Newtowns...). Retry with a
+        // case-insensitive segment walk; exact match above keeps Windows behavior unchanged.
+        fileSystemPath = ResolveCaseInsensitive(fileSystemPath);
+        if (fileSystemPath == null || !File.Exists(fileSystemPath)) return null;
+      }
 
       // If this is a nif, look inside to find the file
       if (nifPath != null) {
@@ -138,6 +145,36 @@ namespace CEM.Client {
         return subfile == null ? null : new MemoryStream(subfile.Data);
       }
       return new FileStream(fileSystemPath, FileMode.Open, FileAccess.Read);
+    }
+
+    /// <summary>
+    /// Resolves a path whose components differ only by case against the real filesystem.
+    /// Returns null when no case-insensitive match exists.
+    /// </summary>
+    private static string ResolveCaseInsensitive(string path)
+    {
+      string root = Path.GetPathRoot(path) ?? "/";
+      string rest = path[root.Length..];
+      string current = root.Length == 0 ? "/" : root;
+      foreach (string part in rest.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+      {
+        string next = Path.Combine(current, part);
+        if (File.Exists(next) || Directory.Exists(next))
+        {
+          current = next;
+          continue;
+        }
+
+        if (!Directory.Exists(current))
+          return null;
+        string? match = Directory.EnumerateFileSystemEntries(current)
+          .FirstOrDefault(e => string.Equals(Path.GetFileName(e), part, StringComparison.OrdinalIgnoreCase));
+        if (match == null)
+          return null;
+        current = match;
+      }
+
+      return current;
     }
 
     /// <summary>
@@ -196,7 +233,11 @@ namespace CEM.Client {
     /// <param name="pattern"></param>
     /// <returns></returns>
     public static IEnumerable<string> FindFiles(string dir, string pattern) {
-      return Directory.GetFiles(Path.Combine(GamePath, dir), pattern, SearchOption.TopDirectoryOnly)
+      string dirPath = ResolveCaseInsensitive(Path.Combine(GamePath, dir)) ?? Path.Combine(GamePath, dir);
+      if (!Directory.Exists(dirPath))
+        return Array.Empty<string>();
+      // ponytail: same case-insensitive fallback as OpenExactly (Linux)
+      return Directory.GetFiles(dirPath, pattern, SearchOption.TopDirectoryOnly)
           .Select(x => x[GamePath.Length..]);
     }
   }

@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/root/daocai/workspace/OfflineDAoC/source/development-tools/OpenDAoC-BuildNav/recast-cli/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

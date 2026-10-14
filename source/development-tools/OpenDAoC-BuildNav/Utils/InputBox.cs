@@ -1,4 +1,4 @@
-﻿using Microsoft.VisualBasic;
+﻿// ponytail: Microsoft.VisualBasic using removed (Linux port; Show() was already stubbed)
 
 namespace CEM.Utils {
   /// <summary>
