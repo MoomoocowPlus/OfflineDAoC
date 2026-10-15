@@ -124,6 +124,15 @@ These changes are made and will be in the 0.36 / 0.36b download. Until then, 0.3
 - With these changes bot raids finished Darkness Falls (Legion defeated by Midgard) and killed Prince Ba'alorien
   and Soul Reckoner for the first time.
 - Bot status saves no longer pile up duplicate entries in their save queue (it grew by about 40,000 an hour).
+- Hurionthex in Galladoria no longer heals to full each time he changes form. Every form change restored all his
+  health, so raids that had him at 13% saw him at 96% moments later. This affected players too.
+- Epic dungeon raids go for the named encounters and the final boss after their first hour, fighting other monsters
+  only when attacked, and do not chase a boss they already killed when it returns. Caer Sidi's raid kept clearing
+  returning monsters for hours and never reached Apocalypse.
+- Armies marching on a keep or relic keep go around the enemy keeps and towers on the way, and keep well away from
+  the keep where the defenders gather. The leader also waits longer at the target for the rest of the army before
+  the attack begins. The army for Dun Dagda lost 146 bots on the march and arrived with 11.
+- Bots walking a long way to a town teleporter no longer give up while they are still getting closer.
 - Fewer server-wide hitches during Darkness Falls raids. Every raider whose post was not in direct reach re-ran the
   same large route search on every AI turn (about a second each); the answer is now shared and remembered.
 
