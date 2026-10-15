@@ -7,6 +7,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using DOL.AI;
 using DOL.Events;
 using DOL.GS.Keeps;
 using DOL.Logging;
@@ -28,6 +29,9 @@ namespace DOL.GS
     ///   in : {"cmd":"ping"}                      -> {"type":"pong","tick":N}
     ///        {"cmd":"snapshot"}                  -> one immediate snapshot to that client
     ///        {"cmd":"entities","region":<ushort>} -> snapshot v1 per-region entity dump (on-demand only)
+    ///        {"cmd":"intent","target":"<botId|internalId>","action":"move_to|follow|attack|stop",
+    ///         [x,y,z,region,victim],"ttl_ticks":N} -> {"type":"intent_ack","ok":bool,"reason":str}
+    ///              routed to the target NcaBrain via NcaBrainRegistry (applied on its next think)
     ///   out (v1): {"type":"entities","tick":N,"region":id,"count":n,"total":n,"truncated":bool,
     ///              "entities":[{"id","name","kind","realm","x","y","z","hp","alive","target"}]}
     ///              {"type":"event","kind":"death|keep_taken|relic_stolen|relic_mounted","tick":N,
@@ -303,6 +307,9 @@ namespace DOL.GS
                 case "entities":
                     client.SendLine(BuildEntitiesJson(doc.RootElement));
                     break;
+                case "intent":
+                    HandleIntent(client, doc.RootElement);
+                    break;
                 default:
                     client.SendLine(JsonSerializer.Serialize(new { type = "error", message = $"unknown cmd '{cmd}'" }));
                     break;
@@ -392,15 +399,120 @@ namespace DOL.GS
 
         private static string KindOf(GameObject obj) => obj is GameBot ? "bot" : obj is GamePlayer ? "player" : "npc";
 
+        /// <summary>
+        /// Game-loop thread only. Intent v0 ingress: {"cmd":"intent","target":"<botId or internalId>",
+        /// "action":"move_to|follow|attack|stop","x":..,"y":..,"z":..,"region":..,"victim":<objectId>,
+        /// "ttl_ticks":N} -> validate (whitelisted action, coordinate bounds, existing zone, TTL clamp)
+        /// and post to <see cref="NcaBrainRegistry"/> keyed by body InternalID. The target brain applies
+        /// it on a later think tick (NpcService step, before Attack/Movement services in the same tick).
+        /// Unknown target/action or missing fields -> safe no-op + intent_ack with ok=false.
+        /// </summary>
+        private static void HandleIntent(GmClient client, JsonElement root)
+        {
+            string target = root.TryGetProperty("target", out JsonElement targetElement) && targetElement.ValueKind == JsonValueKind.String
+                ? targetElement.GetString()
+                : null;
+
+            if (!NcaBrainRegistry.TryResolveTarget(target, out NcaBrain brain))
+            {
+                if (log.IsDebugEnabled)
+                    log.Debug($"{nameof(WorldSnapshotService)} intent rejected: unknown target '{target}'");
+
+                client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = $"unknown nca target '{target}'" }));
+                return;
+            }
+
+            string action = root.TryGetProperty("action", out JsonElement actionElement) && actionElement.ValueKind == JsonValueKind.String
+                ? actionElement.GetString()
+                : null;
+
+            if (!NcaBrainRegistry.IsKnownAction(action))
+            {
+                client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = $"unknown action '{action}' (move_to|follow|attack|stop)" }));
+                return;
+            }
+
+            int ttl = NcaBrainRegistry.DefaultTtlTicks;
+
+            if (root.TryGetProperty("ttl_ticks", out JsonElement ttlElement) && ttlElement.ValueKind == JsonValueKind.Number)
+                ttl = Math.Clamp(ttlElement.GetInt32(), 1, NcaBrainRegistry.MaxTtlTicks);
+
+            // Defaults = the body's current state, so "stop" and partial move_to payloads are valid.
+            ushort region = brain.Body.CurrentRegionID;
+            int x = brain.Body.X;
+            int y = brain.Body.Y;
+            int z = brain.Body.Z;
+            int victim = 0;
+
+            if (action == NcaBrainRegistry.ActionMoveTo)
+            {
+                if (!TryGetInt(root, "region", out int requestedRegion) || !TryGetInt(root, "x", out x) || !TryGetInt(root, "y", out y))
+                {
+                    client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = "move_to needs region, x and y" }));
+                    return;
+                }
+
+                if (requestedRegion < 0 || requestedRegion > ushort.MaxValue)
+                {
+                    client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = $"bad region {requestedRegion}" }));
+                    return;
+                }
+
+                region = (ushort)requestedRegion;
+
+                if (root.TryGetProperty("z", out JsonElement zElement) && zElement.ValueKind == JsonValueKind.Number)
+                    z = zElement.GetInt32();
+
+                if (x < 0 || x > NcaBrainRegistry.MaxHorizontalCoord || y < 0 || y > NcaBrainRegistry.MaxHorizontalCoord ||
+                    z < -NcaBrainRegistry.MaxVerticalDelta || z > NcaBrainRegistry.MaxVerticalDelta)
+                {
+                    client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = "coordinates out of range" }));
+                    return;
+                }
+
+                if (WorldMgr.GetRegion(region)?.GetZone(x, y) == null)
+                {
+                    client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = $"no zone at {region}:{x},{y}" }));
+                    return;
+                }
+            }
+            else if (action is NcaBrainRegistry.ActionFollow or NcaBrainRegistry.ActionAttack)
+            {
+                if (!TryGetInt(root, "victim", out victim) || victim <= 0)
+                {
+                    client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = $"{action} needs a victim object id" }));
+                    return;
+                }
+            }
+
+            NcaBrainRegistry.Post(NcaBrainRegistry.KeyOf(brain), new NcaBrainRegistry.NcaIntent(action, region, x, y, z, victim, ttl));
+
+            if (log.IsDebugEnabled)
+                log.Debug($"{nameof(WorldSnapshotService)} intent accepted: {action} for '{target}' ttl {ttl}");
+
+            client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = true, reason = $"{action} accepted for {target}, ttl {ttl}" }));
+        }
+
+        private static bool TryGetInt(JsonElement root, string name, out int value)
+        {
+            value = 0;
+            return root.TryGetProperty(name, out JsonElement element) && element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out value);
+        }
+
         private static string IdOf(GameObject obj) => obj.ObjectID != 0 ? obj.ObjectID.ToString() : obj.InternalID ?? "";
 
-        /// <summary>Game-loop thread only. Snapshot v1: on-demand per-region entity dump; no per-tick cost.</summary>
+        /// <summary>Game-loop thread only. Snapshot v1: on-demand per-region entity dump; no per-tick cost.
+        /// Optional exact "name" filter (additive v0.1) for probes; unfiltered calls keep the v0 shape.</summary>
         private static string BuildEntitiesJson(JsonElement root)
         {
             if (!root.TryGetProperty("region", out JsonElement regionElement)
                 || regionElement.ValueKind != JsonValueKind.Number
                 || !regionElement.TryGetUInt16(out ushort regionId))
                 return JsonSerializer.Serialize(new { type = "error", message = "missing region id" });
+
+            string nameFilter = root.TryGetProperty("name", out JsonElement nameElement) && nameElement.ValueKind == JsonValueKind.String
+                ? nameElement.GetString()
+                : null;
 
             if (!WorldMgr.Regions.TryGetValue(regionId, out Region region) || region == null)
                 return JsonSerializer.Serialize(new { type = "error", message = $"no region {regionId}" });
@@ -421,6 +533,9 @@ namespace DOL.GS
                     total++;
 
                     if (entities.Count >= MaxEntitiesPerReply)
+                        continue;
+
+                    if (nameFilter != null && !string.Equals(obj.Name, nameFilter, StringComparison.Ordinal))
                         continue;
 
                     entities.Add(BuildEntity(regionId, i, obj));
@@ -548,13 +663,27 @@ namespace DOL.GS
                 GameObject victim = (GameObject)sender;
                 GameObject killer = dying.Killer;
 
+                // InternalID gives reward attribution a session-stable key (ObjectID churns per boot).
+                // GameBot hides GameObject.InternalID ("public new"), so read the bot property first.
+                static string InternalIdOf(GameObject o) => o switch
+                {
+                    GameBot bot => bot.InternalID,
+                    GameLiving living => living.InternalID,
+                    _ => null,
+                };
+
+                string victimInternal = InternalIdOf(victim);
+                string killerInternal = InternalIdOf(killer);
+
                 Instance.EmitEvent("death", new
                 {
                     victim = IdOf(victim),
+                    victimInternal,
                     victimName = victim.Name ?? "",
                     victimKind = KindOf(victim),
                     victimRealm = (int)victim.Realm,
                     killer = killer == null ? null : IdOf(killer),
+                    killerInternal,
                     killerName = killer?.Name,
                     killerKind = killer == null ? null : KindOf(killer),
                     killerRealm = killer == null ? (int?)null : (int)killer.Realm,
