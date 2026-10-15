@@ -23,8 +23,14 @@ namespace DOL.GS
         [ServerProperty("autonomous_population", "active_only", "Reject time-skipped or offline simulated bot progression.", true)]
         public static bool ACTIVE_ONLY;
 
-        [ServerProperty("autonomous_population", "startup_ramp_minutes", "Startup ramp duration. The first 33 percent stagger through five minutes and the remaining roster through the next ten minutes.", 15)]
+        [ServerProperty("autonomous_population", "max_active_bots", "Most autonomous bots in the world at once. 0 = the whole roster. Lowering it (or turning the population off) logs the extra bots out in small batches; their characters are kept.", 0)]
+        public static int MAX_ACTIVE_BOTS;
+
+        [ServerProperty("autonomous_population", "startup_ramp_minutes", "Optional startup ramp in minutes (0 = none). When set, the first 33 percent stagger through five minutes and the rest through the remaining time. Login speed is otherwise limited by bot_logins_per_second.", 0)]
         public static int STARTUP_RAMP_MINUTES;
+
+        [ServerProperty("autonomous_population", "bot_logins_per_second", "Most bots logged into the world per second. Smooths server load without making a small roster wait.", 8)]
+        public static int BOT_LOGINS_PER_SECOND;
 
         [ServerProperty("autonomous_population", "allow_character_deletion", "Owner-only destructive gate. Keep false so shutdowns, restarts, and population reductions can only park bot characters.", false)]
         public static bool ALLOW_CHARACTER_DELETION;

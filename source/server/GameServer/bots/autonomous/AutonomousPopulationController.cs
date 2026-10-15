@@ -28,6 +28,7 @@ public static class AutonomousPopulationController
     private static readonly Logger Log = LoggerManager.Create(MethodBase.GetCurrentMethod().DeclaringType);
     private static readonly ConcurrentDictionary<long, byte> PendingSpawns = new();
     private static readonly ConcurrentDictionary<long, byte> PendingCommands = new();
+    private static readonly ConcurrentDictionary<long, byte> PendingLogouts = new();
     private static System.Threading.Timer _timer;
     private static DateTime _startedUtc;
     private static DateTime _nextRosterRefreshUtc;
@@ -36,6 +37,8 @@ public static class AutonomousPopulationController
     private static volatile OfflineWorldBotRecord[] _cachedRoster = Array.Empty<OfflineWorldBotRecord>();
     private static bool _cachedEnabled;
     private static int _cachedRampMinutes = 15;
+    private static int _cachedLoginsPerSecond = 8;
+    private static int _cachedMaxActive;
     private static int _polling;
     private static int _loginGeneration;
 
@@ -75,6 +78,7 @@ public static class AutonomousPopulationController
         // or training actually changed them; there is no shutdown-wide rewrite.
         AutonomousBotStatusPersistence.FlushAll();
         PendingSpawns.Clear();
+        PendingLogouts.Clear();
         PendingCommands.Clear();
         _cachedRoster = Array.Empty<OfflineWorldBotRecord>();
     }
@@ -99,6 +103,9 @@ public static class AutonomousPopulationController
 
             OfflineWorldBotRecord[] roster = _cachedRoster;
             int desired = AutonomousPopulationRamp.DesiredActiveCount(_cachedEnabled, roster.Length, _cachedRampMinutes, nowUtc - _startedUtc);
+            if (_cachedMaxActive > 0)
+                desired = Math.Min(desired, _cachedMaxActive);
+            LogOutExcessBots();
             int missing = desired - AutonomousBotRegistry.Count - PendingSpawns.Count;
             _populationSatisfied = missing <= 0;
             if (missing <= 0)
@@ -115,10 +122,9 @@ public static class AutonomousPopulationController
                 .Where(record => !record.IsOnline && !AutonomousBotRegistry.Contains(record.BotId) && !PendingSpawns.ContainsKey(record.BotId))
                 .ToList();
 
-            // Ten thousand actors require about eleven scheduled logins per
-            // second to reach 33% at five minutes and 100% at fifteen. Keep
-            // every pulse bounded while retaining modest catch-up headroom.
-            int enqueueCount = Math.Min(Math.Min(missing, available.Count), MaximumSpawnEnqueuePerPoll);
+            // The poll runs once a second: bot_logins_per_second bounds each pulse,
+            // so a small roster is in within seconds and a large one never bursts.
+            int enqueueCount = Math.Min(Math.Min(missing, available.Count), _cachedLoginsPerSecond);
             for (int i = 0; i < enqueueCount; i++)
             {
                 long? nextId = AutonomousRealmLoginBalancer.SelectNext(
@@ -323,7 +329,9 @@ public static class AutonomousPopulationController
         // Pure reads: SQLite WAL readers never block the writer, so this no
         // longer holds the shared write lock that game-loop transactions wait on.
         _cachedEnabled = ReadBool("population_enabled", false);
-        _cachedRampMinutes = ReadInt("startup_ramp_minutes", 15);
+        _cachedRampMinutes = ReadInt("startup_ramp_minutes", 0);
+        _cachedLoginsPerSecond = Math.Clamp(ReadInt("bot_logins_per_second", 8), 1, MaximumSpawnEnqueuePerPoll);
+        _cachedMaxActive = Math.Max(0, ReadInt("max_active_bots", 0));
         _cachedRoster = DOLDB<OfflineWorldBotRecord>
             .SelectObjects(DB.Column("IsRetired").IsEqualTo(false))
             .OrderBy(record => record.BotId)
@@ -331,6 +339,50 @@ public static class AutonomousPopulationController
     }
 
     private static volatile bool _populationSatisfied;
+
+    /// <summary>Re-read settings and roster on the next poll (after an admin change).</summary>
+    public static void RequestRefresh() => _nextRosterRefreshUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// The owner lowered max_active_bots or turned the population off: log extra bots out of the
+    /// world, a bounded batch per poll. Their characters stay in the roster. Bots grouped with a
+    /// human player are left alone.
+    /// </summary>
+    private static void LogOutExcessBots()
+    {
+        int allowed = !_cachedEnabled ? 0 : _cachedMaxActive > 0 ? _cachedMaxActive : int.MaxValue;
+        int excess = AutonomousBotRegistry.Count - PendingLogouts.Count - allowed;
+        if (excess <= 0)
+            return;
+
+        foreach (GameBot bot in AutonomousBotRegistry.Snapshot()
+                     .Where(bot => bot.PersistentRecord != null && !PendingLogouts.ContainsKey(bot.PersistentRecord.BotId))
+                     .Where(bot => bot.Group == null || bot.Group.GetPlayersInTheGroup().Count == 0)
+                     .OrderBy(bot => bot.InCombat ? 1 : 0)
+                     .Take(Math.Min(excess, MaximumSpawnEnqueuePerPoll)))
+        {
+            if (PendingLogouts.TryAdd(bot.PersistentRecord.BotId, 0))
+                NpcService.Instance.Post(LogOutOnGameLoop, bot);
+        }
+    }
+
+    private static void LogOutOnGameLoop(GameBot bot)
+    {
+        try
+        {
+            // Delete() saves the bot's state and removes it from the world; its record stays.
+            if (bot.ObjectState == GameObject.eObjectState.Active)
+                bot.Delete();
+        }
+        catch (Exception exception)
+        {
+            Log.Error($"Could not log autonomous bot {bot.Name} out of the world", exception);
+        }
+        finally
+        {
+            PendingLogouts.TryRemove(bot.PersistentRecord.BotId, out _);
+        }
+    }
 
     private static void QueueOwnerCommands(bool repairOrphans)
     {
