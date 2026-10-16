@@ -499,6 +499,14 @@ namespace DOL.GS
             return root.TryGetProperty(name, out JsonElement element) && element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out value);
         }
 
+        private static bool TryGetIntAt(JsonElement array, int index, out int value)
+        {
+            value = 0;
+            return index >= 0 && index < array.GetArrayLength()
+                && array[index].ValueKind == JsonValueKind.Number
+                && array[index].TryGetInt32(out value);
+        }
+
         private static string IdOf(GameObject obj) => obj.ObjectID != 0 ? obj.ObjectID.ToString() : obj.InternalID ?? "";
 
         /// <summary>Game-loop thread only. Snapshot v1: on-demand per-region entity dump; no per-tick cost.
@@ -513,6 +521,17 @@ namespace DOL.GS
             string nameFilter = root.TryGetProperty("name", out JsonElement nameElement) && nameElement.ValueKind == JsonValueKind.String
                 ? nameElement.GetString()
                 : null;
+
+            // Optional "area":[x,y,radius] filter (additive gym v0.2): only objects within
+            // radius of the XY center (2D). Lets gym observers pull the local camp window
+            // instead of the first-2000 global cap. Unfiltered calls keep the v0 shape.
+            int areaX = 0, areaY = 0, areaR = 0;
+            bool hasArea = root.TryGetProperty("area", out JsonElement areaElement)
+                && areaElement.ValueKind == JsonValueKind.Array
+                && areaElement.GetArrayLength() == 3
+                && TryGetIntAt(areaElement, 0, out areaX)
+                && TryGetIntAt(areaElement, 1, out areaY)
+                && TryGetIntAt(areaElement, 2, out areaR);
 
             if (!WorldMgr.Regions.TryGetValue(regionId, out Region region) || region == null)
                 return JsonSerializer.Serialize(new { type = "error", message = $"no region {regionId}" });
@@ -537,6 +556,13 @@ namespace DOL.GS
 
                     if (nameFilter != null && !string.Equals(obj.Name, nameFilter, StringComparison.Ordinal))
                         continue;
+
+                    if (hasArea)
+                    {
+                        long dx = obj.X - areaX, dy = obj.Y - areaY;
+                        if (dx * dx + dy * dy > (long)areaR * areaR)
+                            continue;
+                    }
 
                     entities.Add(BuildEntity(regionId, i, obj));
                 }

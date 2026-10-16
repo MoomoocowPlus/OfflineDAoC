@@ -33,6 +33,10 @@ namespace DOL.GS
         // is not part of this frontier world set, so a bad spot must skip the spawn instead.
         private static readonly (int X, int Y, int Z)[] CandidateSpots =
         {
+            // Gym area first (Avalon Marsh L1-2 hostile camp, ~13 mobs within 2k):
+            (468086, 628950, 1628), // Avalon Marsh, 'scrawny bogman' (gym center)
+            (469198, 628298, 1609), // Avalon Marsh, 'scrawny bogman'
+            (468080, 629578, 1691), // Avalon Marsh, 'creeping crud'
             (488120, 609958, 1624), // Campacorentin Forest, 'river spriteling'
             (473405, 627963, 2048), // Avalon Marsh, 'Wylie Edyn'
             (553515, 608640, 2908), // Salisbury Plains, 'spriggarn ambusher'

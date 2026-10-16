@@ -456,7 +456,12 @@ namespace DOL.GS.ServerRules
                     return true;
 
                 // Pets and bots can attack everything.
-                if (npcAttacker is GameSummonedPet || npcAttacker.Brain is ControlledMobBrain || npcAttacker.Brain is BotBrain)
+                // (gym) NcaBrain probe: same privilege as BotBrain — it replaces the
+                // stock brain per entity (override boundary) and must keep the attack
+                // gate; without this every probe melee round dies at the faction check
+                // below as NotAllowed_ServerRules (ATTACKSTATE dump evidence).
+                if (npcAttacker is GameSummonedPet || npcAttacker.Brain is ControlledMobBrain || npcAttacker.Brain is BotBrain
+                    || npcAttacker.Brain is DOL.AI.NcaBrain)
                     return true;
 
                 // Mobs can attack mobs only if they both have a faction or if any is confused.

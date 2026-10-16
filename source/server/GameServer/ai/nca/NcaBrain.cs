@@ -86,6 +86,21 @@ namespace DOL.AI
             if (body == null)
                 return;
 
+            // Gym combat diagnostics: every ~10 thinks while an attack intent is
+            // active, dump the exact attack-pipeline state (which gate is failing).
+            if (_active != null && _active.Action == NcaBrainRegistry.ActionAttack &&
+                GameLoop.GameLoopTime % 3000 < (long)ThinkInterval)
+            {
+                var ac = body.attackComponent;
+                log.Warn($"NcaBrain {BodyKey} ATTACKSTATE tgt={(body.TargetObject?.Name ?? "none")} "
+                         + $"state={_active.Action}:{_activeRemaining} attackState={ac.AttackState} "
+                         + $"isAttacking={body.IsAttacking} slot={body.ActiveWeaponSlot} "
+                         + $"weapon={body.ActiveWeapon?.Name ?? "null"} atkRange={ac.AttackRange} "
+                         + $"dist={(body.TargetObject != null ? (int)body.GetDistanceTo(body.TargetObject) : -1)} "
+                         + $"inRange={(body.TargetObject != null && body.IsWithinRadius(body.TargetObject, ac.AttackRange))} "
+                         + $"lastResult={ac.attackAction?.LastAttackData?.AttackResult.ToString() ?? "none"}");
+            }
+
             string state = _active == null ? "idle" : $"{_active.Action}:{_activeRemaining}";
 
             lock (_ring)
@@ -165,6 +180,19 @@ namespace DOL.AI
                         }
                         else
                         {
+                            // Gym combat diagnostic: a GameBot is an IGamePlayer, so
+                            // AttackComponent.AttackRange (ECS-Components/AttackComponent.cs:144)
+                            // returns 0 when ActiveWeapon is null -> every melee round
+                            // resolves OutOfRange silently. Log + re-select Standard.
+                            if (body is GameBot bot && bot.ActiveWeapon == null)
+                            {
+                                bot.SwitchWeapon(NcaBrainRegistry.ActionAttack == intent.Action
+                                    ? eActiveWeaponSlot.Standard : eActiveWeaponSlot.Standard);
+                                log.Warn($"NcaBrain {BodyKey} attack: ActiveWeapon was NULL; "
+                                         + $"SwitchWeapon(Standard) -> now {(bot.ActiveWeapon?.Name ?? "still null")} "
+                                         + $"slot={bot.ActiveWeaponSlot} range={bot.attackComponent.AttackRange}");
+                            }
+
                             body.StartAttack(victim);
 
                             if (log.IsDebugEnabled)
