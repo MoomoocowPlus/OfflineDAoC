@@ -148,6 +148,9 @@ These changes are made and will be in the 0.36 / 0.36b download. Until then, 0.3
   Create an empty file named gc-diagnostics.off in runtime\server to turn the detailed sampling and snapshots off.
 
 **Classes**
+- Necromancer bots have their servant use its area debuffs (Shroud of Affliction, Vortex of Anguish and their ranks)
+  on a single enemy too; they were almost never cast. Billowing Death and its ranks, which burst around the servant,
+  are only commanded once the servant stands by the target, instead of from far away where they hit nothing.
 - Necromancer and Bonedancer pets look as they did in 1.65, using models from the original 2003 game client instead
   of later ones. Necromancer servants: zombies, a Briton undead, a Roman legionnaire and a blue wight, with nothing
   in their hands; only the abomination (a glowing demon knight) carries a weapon, its red-glowing two-handed sword.
@@ -164,6 +167,15 @@ These changes are made and will be in the 0.36 / 0.36b download. Until then, 0.3
   borrowed from the Sluaghbinder's plague spells for now.
 
 **Quests**
+- Tainted Magic (Albion) can be finished: its first step, getting the ales, never completed. A search of a
+  player's whole inventory always came back empty, so the server never saw the ale it had just handed over. The
+  same fault made some quests hand the same letter or quest item over again every minute.
+- Commencement (Master Torr) is offered to every class once you have finished his Immediate Resolution. Only three
+  classes could get it before.
+- Named monsters that quests send you to kill come back within five minutes (some took up to 100 minutes, such as
+  Throatripper, Sir Gerenth, Fallen One, Stripe and Zrit-Zrit).
+- You can take an enemy relic with your companion bots: they count toward the attackers needed on the relic pad,
+  and eight are needed now (was sixteen), so you and seven companions are enough.
 - Classic quests now give their item rewards. 940 reward items that were missing are in, so every one of the
   classic quests (1.65 and classic Shrouded Isles) hands out the items it names, including the "choose your
   reward" endings. Stats come from the item pages as they were in 2002-2004 (573 items), a 1.65-era server
