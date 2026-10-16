@@ -27,6 +27,10 @@ namespace DOL.GS
         public const long BotId = 900001;
         public const string Name = "NcaProbe";
 
+        // Multi-NCA boost arm (ROADMAP §9, owner 2026-10-16): N probes spread on the
+        // gym camp — ids 900001..900001+ProbeCount-1, names NcaProbe, NcaProbe2...
+        public const int ProbeCount = 8;
+
         private const ushort RegionId = 1; // Albion, frontier world set
         // Known-walkable Mob rows in region 1 (world DB), across several loaded zones; the
         // first one whose floor snaps onto the navmesh wins. No capital fallback: region 10
@@ -52,7 +56,7 @@ namespace DOL.GS
             NpcService.Instance.Post(SpawnOnGameLoop, 0);
         }
 
-        /// <summary>Game-loop thread (posted via NpcService).</summary>
+        /// <summary>Game-loop thread (posted via NpcService). Spawns ProbeCount probes.</summary>
         private static void SpawnOnGameLoop(int state)
         {
             try
@@ -63,10 +67,31 @@ namespace DOL.GS
                     return;
                 }
 
+                for (int i = 0; i < ProbeCount; i++)
+                    SpawnOne(i);
+            }
+            catch (Exception exception)
+            {
+                log.Error($"{nameof(NcaTestBot)} spawn failed", exception);
+            }
+        }
+
+        /// <summary>One probe: ring-offset around gym center so bodies share the camp window
+        /// without co-locating (same record pattern as the v0 single probe).</summary>
+        private static void SpawnOne(int index)
+        {
+            try
+            {
+                // ring: 400..1300 units around spot 0, 45° steps — all inside the 6000 obs window
+                double angle = index * Math.PI / 4.0;
+                int radius = 400 + (index % 4) * 300;
+                int bx = CandidateSpots[0].X + (int)(Math.Cos(angle) * radius);
+                int by = CandidateSpots[0].Y + (int)(Math.Sin(angle) * radius);
+
                 OfflineWorldBotRecord record = new()
                 {
-                    BotId = BotId,
-                    Name = Name,
+                    BotId = BotId + index,
+                    Name = index == 0 ? Name : $"{Name}{index + 1}",
                     Realm = (int)eRealm.Albion,
                     ClassId = (int)eCharacterClass.Armsman,
                     ClassName = "Armsman",
@@ -75,17 +100,17 @@ namespace DOL.GS
                     Gender = 0,
                     Level = 5,
                     RegionId = RegionId,
-                    X = CandidateSpots[0].X,
-                    Y = CandidateSpots[0].Y,
+                    X = bx,
+                    Y = by,
                     Z = CandidateSpots[0].Z,
                     IsRetired = true,
                     Activity = "NCA probe",
                     LastUpdateUtc = DateTime.UtcNow.ToString("O"),
                 };
 
-                if (!TryPlaceOnWalkableFloor(record))
+                if (!TryPlaceOnWalkableFloor(record, bx, by))
                 {
-                    log.Error($"{nameof(NcaTestBot)} no candidate spot in region {RegionId} snapped onto a walkable mesh; skipping spawn");
+                    log.Error($"{nameof(NcaTestBot)} probe {record.Name} no walkable spot near {bx},{by}; skipping");
                     return;
                 }
 
@@ -96,27 +121,28 @@ namespace DOL.GS
 
                 if (!bot.AddToWorld())
                 {
-                    log.Error($"{nameof(NcaTestBot)} AddToWorld failed at {RegionId}:{bot.X},{bot.Y}");
+                    log.Error($"{nameof(NcaTestBot)} {record.Name} AddToWorld failed at {RegionId}:{bot.X},{bot.Y}");
                     return;
                 }
 
                 // Replace the stock BotBrain (override boundary; SetOwnBrain starts the new brain).
                 bot.SetOwnBrain(new NcaBrain());
 
-                log.Info($"{nameof(NcaTestBot)} '{Name}' spawned in region {RegionId} at {bot.X},{bot.Y},{bot.Z} with NcaBrain");
+                log.Info($"{nameof(NcaTestBot)} '{record.Name}' spawned in region {RegionId} at {bot.X},{bot.Y},{bot.Z} with NcaBrain");
             }
             catch (Exception exception)
             {
-                log.Error($"{nameof(NcaTestBot)} spawn failed", exception);
+                log.Error($"{nameof(NcaTestBot)} probe {index} spawn failed", exception);
             }
         }
 
         /// <summary>
-        /// Places the record's coordinates onto a verified walkable mesh floor. Returns false when
-        /// no candidate works (the caller skips the spawn). Never relocates to a capital: region 10
-        /// is not loaded in this frontier world set.
+        /// Places the record's coordinates onto a verified walkable mesh floor. Tries the
+        /// requested point first, then falls back through CandidateSpots (the caller skips
+        /// the spawn when nothing works). Never relocates to a capital: region 10 is not
+        /// loaded in this frontier world set.
         /// </summary>
-        private static bool TryPlaceOnWalkableFloor(OfflineWorldBotRecord record)
+        private static bool TryPlaceOnWalkableFloor(OfflineWorldBotRecord record, int reqX, int reqY)
         {
             Region region = WorldMgr.GetRegion((ushort)record.RegionId);
             var nav = PathfindingProvider.Instance;
@@ -124,7 +150,13 @@ namespace DOL.GS
             if (region == null)
                 return false;
 
-            foreach ((int x, int y, int z) in CandidateSpots)
+            // requested point first, then the fixed candidate list as fallback
+            var candidates = new (int X, int Y, int Z)[CandidateSpots.Length + 1];
+            candidates[0] = (reqX, reqY, record.Z);
+            for (int i = 0; i < CandidateSpots.Length; i++)
+                candidates[i + 1] = CandidateSpots[i];
+
+            foreach ((int x, int y, int z) in candidates)
             {
                 Zone zone = region.GetZone(x, y);
 
