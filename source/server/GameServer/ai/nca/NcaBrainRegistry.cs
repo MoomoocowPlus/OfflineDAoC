@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using DOL.GS;
+using DOL.GS.Styles;
 
 namespace DOL.AI
 {
@@ -23,6 +26,14 @@ namespace DOL.AI
         public const string ActionFollow = "follow";
         public const string ActionAttack = "attack";
         public const string ActionStop = "stop";
+
+        // Intent v0.1 verbs (A-lite): applied immediately in WorldSnapshotService.HandleIntent
+        // on the game-loop thread — not routed through the pending-intent queue, so the ack
+        // carries the real result (spell known? pet present?).
+        public const string ActionCast = "cast";
+        public const string ActionStyle = "style";
+        public const string ActionPetPosture = "pet_posture";
+        public const string ActionSummon = "summon";
 
         // Ticks are brain thinks (~300 ms). Default ~12 s of intent lifetime; hard cap ~3 min.
         public const int DefaultTtlTicks = 40;
@@ -93,6 +104,81 @@ namespace DOL.AI
         public static bool TryConsume(string key, out NcaIntent intent) => Pending.TryRemove(key, out intent);
 
         public static bool IsKnownAction(string action) =>
-            action is ActionMoveTo or ActionFollow or ActionAttack or ActionStop;
+            action is ActionMoveTo or ActionFollow or ActionAttack or ActionStop
+                or ActionCast or ActionStyle or ActionPetPosture or ActionSummon;
+
+        // Preferred melee style per body key ("style" verb). Sticky: honored on every melee
+        // swing until replaced or cleared (styleid 0). Written from the intent ingress, read
+        // by NpcAttackAction before BotMeleeStylePolicy.Select — endurance and execution
+        // checks in the normal style path still apply to it. Same game-loop thread on both
+        // ends; concurrent dictionary anyway so a peek can never race a style change.
+        private static readonly ConcurrentDictionary<string, int> PreferredStyles = new(StringComparer.Ordinal);
+
+        /// <summary>Queue a style (by Skill.ID) for the bot's melee swings; 0 clears. Returns
+        /// false + reason when the bot does not know the style.</summary>
+        public static bool SetPreferredStyle(GameBot bot, int styleId, out string reason)
+        {
+            string key = bot?.InternalID ?? string.Empty;
+
+            if (styleId <= 0)
+            {
+                PreferredStyles.TryRemove(key, out _);
+                reason = "preferred style cleared";
+                return true;
+            }
+
+            List<Style> styles = bot.Styles;
+            Style known = null;
+
+            if (styles != null)
+            {
+                foreach (Style style in styles)
+                {
+                    if (style != null && style.ID == styleId)
+                    {
+                        known = style;
+                        break;
+                    }
+                }
+            }
+
+            if (known == null)
+            {
+                // Diagnostic: the ack names what the bot actually knows, so a bad gym payload
+                // is distinguishable from an untrained bot body.
+                string knownIds = styles == null ? "none" : string.Join(",", styles.Where(s => s != null).Select(s => s.ID).Take(12));
+                reason = $"style not known (styles: {knownIds})";
+                return false;
+            }
+
+            PreferredStyles[key] = styleId;
+            reason = $"style '{known.Name}' queued for every swing until replaced";
+            return true;
+        }
+
+        /// <summary>Lookup used by NpcAttackAction per swing; null-safe, no allocation when unset.</summary>
+        public static bool TryGetPreferredStyle(GameBot bot, out Style style)
+        {
+            style = null;
+
+            if (bot == null || !PreferredStyles.TryGetValue(bot.InternalID ?? string.Empty, out int styleId))
+                return false;
+
+            List<Style> styles = bot.Styles;
+
+            if (styles == null)
+                return false;
+
+            foreach (Style candidate in styles)
+            {
+                if (candidate != null && candidate.ID == styleId)
+                {
+                    style = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 }

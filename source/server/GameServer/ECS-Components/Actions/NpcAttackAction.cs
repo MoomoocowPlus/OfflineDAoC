@@ -1,4 +1,5 @@
-﻿using DOL.AI.Brain;
+﻿using DOL.AI;
+using DOL.AI.Brain;
 using DOL.GS.Keeps;
 using DOL.GS.ServerProperties;
 using DOL.GS.Styles;
@@ -161,7 +162,9 @@ namespace DOL.GS
             }
 
             _combatStyle = _npcOwner is GameBot meleeBot
-                ? BotMeleeStylePolicy.Select(meleeBot, LastAttackData)
+                ? (NcaBrainRegistry.TryGetPreferredStyle(meleeBot, out Style ncaStyle)
+                    ? ncaStyle // gym "style" verb: honor the queued preference, endurance check below still applies
+                    : BotMeleeStylePolicy.Select(meleeBot, LastAttackData))
                 : StyleComponent.GetStyleToUse();
 
             if (_npcOwner is GameBot styleBot && _combatStyle != null)

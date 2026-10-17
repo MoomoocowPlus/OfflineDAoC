@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using DOL.AI;
+using DOL.AI.Brain;
 using DOL.Events;
 using DOL.GS.Keeps;
 using DOL.Logging;
@@ -32,9 +33,15 @@ namespace DOL.GS
     ///        {"cmd":"intent","target":"<botId|internalId>","action":"move_to|follow|attack|stop",
     ///         [x,y,z,region,victim],"ttl_ticks":N} -> {"type":"intent_ack","ok":bool,"reason":str}
     ///              routed to the target NcaBrain via NcaBrainRegistry (applied on its next think)
+    ///        {"cmd":"intent","target":"..","action":"cast|summon","spellid":N|"spell_name":".."}
+    ///        {"cmd":"intent","target":"..","action":"style","styleid":N}
+    ///        {"cmd":"intent","target":"..","action":"pet_posture","mode":"aggressive|passive|follow"}
+    ///              -> applied immediately on the game-loop thread (v0.1 A-lite verbs);
+    ///                 ack carries the real result (ok=false "spell not known" / "no pet" / ...)
     ///   out (v1): {"type":"entities","tick":N,"region":id,"count":n,"total":n,"truncated":bool,
-    ///              "entities":[{"id","name","kind","realm","x","y","z","hp","alive","target"}]}
-    ///              {"type":"event","kind":"death|keep_taken|relic_stolen|relic_mounted","tick":N,
+    ///              "entities":[{"id","name","kind","realm","x","y","z","hp","alive","target",
+    ///                           "level", + for player/bot bodies "mana","endurance","classid"}]}
+    ///              {"type":"event","kind":"death|keep_taken|relic_stolen|relic_mounted|xp|rp","tick":N,
     ///               "utc":"..","data":{...}}   -- reward feed; new clients replay last <=64 events.
     /// MessagePack + richer commands arrive with Phase 5.3's executor; JSON first for debuggability (nc -U).
     /// </summary>
@@ -428,8 +435,25 @@ namespace DOL.GS
 
             if (!NcaBrainRegistry.IsKnownAction(action))
             {
-                client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = $"unknown action '{action}' (move_to|follow|attack|stop)" }));
+                client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = $"unknown action '{action}' (move_to|follow|attack|stop|cast|summon|style|pet_posture)" }));
                 return;
+            }
+
+            // Intent v0.1 verbs (A-lite): applied immediately here on the game-loop thread
+            // (DrainCommands -> HandleIntent), so the ack reflects the real result instead of
+            // a queued promise. Classic verbs below still go through the pending queue.
+            switch (action)
+            {
+                case NcaBrainRegistry.ActionCast:
+                case NcaBrainRegistry.ActionSummon:
+                    HandleCastVerb(client, brain, root, action == NcaBrainRegistry.ActionSummon);
+                    return;
+                case NcaBrainRegistry.ActionStyle:
+                    HandleStyleVerb(client, brain, root);
+                    return;
+                case NcaBrainRegistry.ActionPetPosture:
+                    HandlePetPostureVerb(client, brain, root);
+                    return;
             }
 
             int ttl = NcaBrainRegistry.DefaultTtlTicks;
@@ -587,6 +611,18 @@ namespace DOL.GS
             bool alive = true;
             string target = null;
 
+            // Obs enrichment (option B, gym restart bundle): "level" for every living;
+            // "mana"/"endurance"/"classid" for player/bot bodies only. "con" is intentionally
+            // absent — it is per-viewer (relative to the requesting probe's level); the client
+            // computes it from level via the ConLevels formula. Each field is wrapped in its
+            // own try/catch so one bad entity can never kill the whole dump. Unknown/failed
+            // fields serialize as null: additive JSON, old clients ignore extra keys and gym
+            // consumers must treat missing/null as "unknown".
+            int? level = null;
+            int? mana = null;
+            int? endurance = null;
+            int? classid = null;
+
             if (obj is GameLiving living)
             {
                 int maxHealth = living.MaxHealth;
@@ -595,6 +631,22 @@ namespace DOL.GS
 
                 if (living.TargetObject != null)
                     target = living.TargetObject.ObjectID.ToString();
+
+                try { level = living.Level; } catch (Exception) { }
+
+                if (living is GamePlayer or GameBot)
+                {
+                    try { mana = living.Mana; } catch (Exception) { }
+                    try { endurance = living.Endurance; } catch (Exception) { }
+
+                    try
+                    {
+                        classid = living is GameBot bot
+                            ? bot.CharacterClass?.ID
+                            : ((GamePlayer)living).CharacterClass?.ID;
+                    }
+                    catch (Exception) { }
+                }
             }
 
             return new
@@ -608,11 +660,197 @@ namespace DOL.GS
                 z = obj.Z,
                 hp,
                 alive,
-                target
+                target,
+                level,
+                mana,
+                endurance,
+                classid
             };
         }
 
+        #region Intent v0.1 verbs (A-lite) — immediate application
+
+        /// <summary>
+        /// "cast" / "summon": resolve the spell on the target body's learned spell list
+        /// (GameBot.Spells — the SetBotSpells catalog) by "spellid" (Skill.ID) or "spell_name"
+        /// (case-insensitive prefix), then cast through GameBot.CastSpell — the same pipeline
+        /// BotBrain uses (mana/concentration/pending-cast/LOS gates all apply and are reported
+        /// honestly in the ack). For "summon", the spell must additionally be a summon type.
+        /// Unknown spell -> ack ok=false "spell not known"; non-bot body -> ok=false.
+        /// </summary>
+        private static void HandleCastVerb(GmClient client, NcaBrain brain, JsonElement root, bool summonOnly)
+        {
+            if (brain.Body is not GameBot bot)
+            {
+                client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = "cast target is not a GameBot body" }));
+                return;
+            }
+
+            int spellId = TryGetInt(root, "spellid", out int sid) ? sid : 0;
+            string spellName = root.TryGetProperty("spell_name", out JsonElement nameElement) && nameElement.ValueKind == JsonValueKind.String
+                ? nameElement.GetString()
+                : null;
+
+            Spell spell = null;
+
+            foreach (Spell candidate in bot.Spells)
+            {
+                if (candidate == null)
+                    continue;
+
+                bool match = spellId > 0
+                    ? candidate.ID == spellId
+                    : spellName != null && candidate.Name != null && candidate.Name.StartsWith(spellName, StringComparison.OrdinalIgnoreCase);
+
+                if (match)
+                {
+                    spell = candidate;
+                    break;
+                }
+            }
+
+            if (spell == null)
+            {
+                client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = "spell not known" }));
+                return;
+            }
+
+            if (summonOnly && !spell.SpellType.ToString().StartsWith("Summon", StringComparison.Ordinal))
+            {
+                client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = $"'{spell.Name}' is not a summon spell" }));
+                return;
+            }
+
+            // Self-targeted spells (buffs/summons) need a target; BotBrain does the same
+            // before casting service spells.
+            if (bot.TargetObject == null)
+                bot.TargetObject = bot;
+
+            bool started;
+
+            try
+            {
+                started = bot.CastSpell(spell, SkillBase.GetSpellLine(GlobalSpellsLines.Mob_Spells));
+            }
+            catch (Exception ex)
+            {
+                if (log.IsDebugEnabled)
+                    log.Debug($"{nameof(WorldSnapshotService)} cast '{spell.Name}' threw for '{bot.InternalID}'", ex);
+
+                client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = $"cast threw {ex.GetType().Name}" }));
+                return;
+            }
+
+            client.SendLine(JsonSerializer.Serialize(new
+            {
+                type = "intent_ack",
+                ok = started,
+                reason = started
+                    ? $"cast '{spell.Name}' ({spell.SpellType})"
+                    : $"cast '{spell.Name}' rejected (mana/concentration/pending cast/LOS)"
+            }));
+        }
+
+        /// <summary>"style": queue a melee style (Skill.ID) for the bot's swings; validated
+        /// against the bot's learned Styles. Sticky until replaced; styleid 0 clears.</summary>
+        private static void HandleStyleVerb(GmClient client, NcaBrain brain, JsonElement root)
+        {
+            if (brain.Body is not GameBot bot)
+            {
+                client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = "style target is not a GameBot body" }));
+                return;
+            }
+
+            if (!TryGetInt(root, "styleid", out int styleId))
+            {
+                client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = "style verb needs styleid" }));
+                return;
+            }
+
+            bool ok = NcaBrainRegistry.SetPreferredStyle(bot, styleId, out string styleReason);
+            client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok, reason = styleReason }));
+        }
+
+        /// <summary>"pet_posture": aggressive|passive -> the controlled pet brain's
+        /// AggressionState; follow -> FollowOwner(). No controlled pet -> ok=false "no pet".</summary>
+        private static void HandlePetPostureVerb(GmClient client, NcaBrain brain, JsonElement root)
+        {
+            if (brain.Body is not GameBot bot)
+            {
+                client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = "pet_posture target is not a GameBot body" }));
+                return;
+            }
+
+            string mode = root.TryGetProperty("mode", out JsonElement modeElement) && modeElement.ValueKind == JsonValueKind.String
+                ? modeElement.GetString()
+                : null;
+
+            IControlledBrain pet = bot.ControlledBrain;
+
+            if (pet?.Body == null)
+            {
+                client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = "no pet" }));
+                return;
+            }
+
+            switch (mode)
+            {
+                case "aggressive":
+                    pet.AggressionState = eAggressionState.Aggressive;
+                    break;
+                case "passive":
+                    pet.AggressionState = eAggressionState.Passive;
+                    break;
+                case "follow":
+                    pet.FollowOwner();
+                    break;
+                default:
+                    client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = false, reason = $"unknown pet mode '{mode}' (aggressive|passive|follow)" }));
+                    return;
+            }
+
+            client.SendLine(JsonSerializer.Serialize(new { type = "intent_ack", ok = true, reason = $"pet '{pet.Body.Name}' -> {mode}" }));
+        }
+
+        #endregion
+
         #region Reward / event feed (snapshot v1)
+
+        /// <summary>
+        /// XP reward feed (gym restart bundle): push an xp event into the same ring + fan-out
+        /// as death/keep/relic events — shape {"type":"event","kind":"xp","data":{who, who_internal,
+        /// name, amount, source}}. Called from GainExperience hooks (notifying thread); EmitEvent
+        /// already swallows every failure, so this can never throw into the XP path.
+        /// </summary>
+        public static void EmitXpGain(GameLiving who, long amount, string sourceName)
+        {
+            if (who == null || amount <= 0)
+                return;
+
+            Instance.EmitEvent("xp", new
+            {
+                who = IdOf(who),
+                who_internal = who is GameBot bot ? bot.InternalID : who.InternalID,
+                name = who.Name ?? "",
+                amount,
+                source = sourceName
+            });
+        }
+
+        /// <summary>Realm-points twin of <see cref="EmitXpGain"/> (kind "rp", no source).</summary>
+        public static void EmitRpGain(GameLiving who, long amount)
+        {
+            if (who == null || amount <= 0)
+                return;
+
+            Instance.EmitEvent("rp", new
+            {
+                who = IdOf(who),
+                who_internal = who is GameBot bot ? bot.InternalID : who.InternalID,
+                name = who.Name ?? "",
+                amount
+            });
+        }
 
         private static void RegisterFeedHandlers()
         {

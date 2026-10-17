@@ -1578,6 +1578,7 @@ namespace DOL.GS
             if (!IsAutonomousWorldBot || amount <= 0)
                 return;
             AutonomousRealmPoints += amount;
+            WorldSnapshotService.EmitRpGain(this, amount);
             RealmLevel = Math.Max(RealmLevel, AutonomousBotRealmPointRewards.RealmLevelFor(AutonomousRealmPoints));
             AutonomousStuckWatchdog.MarkProgress(this, eAutonomousProgressKind.RealmPoints);
             MarkAutonomousStateDirty();
@@ -1587,6 +1588,12 @@ namespace DOL.GS
 
         public override void GainExperience(GainedExperienceEventArgs arguments, bool notify = true)
         {
+            // XP reward feed (gym): emit before the autonomous/level-max gates so the ring
+            // shows every award attempt with the amount as computed by the caller (may be
+            // filtered out below — that is the point, the feed stays observable).
+            if (arguments != null)
+                WorldSnapshotService.EmitXpGain(this, arguments.ExpTotal, arguments.XPSource.ToString());
+
             if (!IsAutonomousWorldBot || arguments == null || arguments.ExpTotal <= 0 || Level >= MaxLevel)
                 return;
 

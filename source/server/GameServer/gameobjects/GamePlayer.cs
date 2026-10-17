@@ -3694,6 +3694,7 @@ namespace DOL.GS
                 base.GainRealmPoints(amount);
 
             RealmPoints += amount;
+            WorldSnapshotService.EmitRpGain(this, amount);
             m_statistics.AddToTotalRealmPointsEarned((uint) amount);
 
             if (m_guild != null && Client.Account.PrivLevel == 1)
@@ -4322,6 +4323,11 @@ namespace DOL.GS
         /// </summary>
         public override void GainExperience(GainedExperienceEventArgs arguments, bool notify = true)
         {
+            // XP reward feed (gym): raw award amount, before rate-scaling and gates — the
+            // feed stays observable even when GainXP is off for this character.
+            if (arguments != null)
+                WorldSnapshotService.EmitXpGain(this, arguments.ExpTotal, arguments.XPSource.ToString());
+
             long expTotal = arguments.ExpTotal;
 
             if (!GainXP && expTotal > 0)
