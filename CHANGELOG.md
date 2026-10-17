@@ -3,9 +3,103 @@
 The newest version is first. For the full detail of every earlier update, see
 [docs/history/CHANGELOG-0.3-to-0.32b.md](docs/history/CHANGELOG-0.3-to-0.32b.md).
 
-## 0.36 / 0.36b (not released yet)
+## 0.37 / 0.37b (not released yet)
 
-These changes are made and will be in the 0.36 / 0.36b download. Until then, 0.35 / 0.35b is the latest release.
+Changes made after 0.36 are listed here as they are made, and will be in the 0.37 / 0.37b download. Until then,
+0.36 / 0.36b / 0.36c is the latest release.
+
+**Bots and raids**
+- Automatic raid rallies give their army time to arrive. A rally used to fail if its army was not staged within 90
+  minutes of opening, counting the time spent gathering at the hub town: the Tuscaran Glacier rally needed 84 minutes
+  to gather at Hagall and had six left for the trip. A slow hub now sets out after 30 minutes once 120 have arrived
+  (late arrivals follow on), and after leaving the hub the army always has at least 45 minutes to stage.
+- Raiders on their way to a rally are no longer sent back to their capital by the stuck-bot check. During the
+  Cuuldurach rally it sent over 300 of them to Tir na Nog, and only 13 reached the dragon.
+- Bots that end up on a small cut-off patch of ground step back onto real ground at once, instead of failing route
+  after route first. In Vindsaul Faste this happened to bots heading for the stables almost every day, and it also
+  dropped members from raid parties. A walled-off ridge in the south-east of Lough Derg that bots got stuck on during
+  the Cuuldurach rally is now treated the same way.
+- Bots using the teleporter in Vale of Mularn no longer stand inside the bindstone next to it.
+- Siege and battle announcements read properly. They named the target twice, for example "Our army has laid siege
+  to the keep keep Caer Sursbrooke!"; now it is "Our army has laid siege to Caer Sursbrooke!" (and "the relic
+  keep Dun Dagda" for relic keeps).
+- Animist bots plant their mushrooms only during a fight, and never in a city or town. They used to plant one
+  whenever they stood still between fights, so towns filled up with them.
+
+**Quests**
+- Every classic quest can now be started by talking to its giver. In 20 of them one line of the giver's
+  conversation was missing, so the giver showed a quest marker but nothing you could click led to the quest (Aegan
+  in Mularn only said "You have learned much since I spoke to you last."). The missing lines are back, word for
+  word from the period quest walkthroughs. The broken quests were:
+  - Evenings Empty Blessing: Aegan, Mularn (Midgard, levels 15 to 50)
+  - Lover's Circle: Sugnhild, Huginfell (Midgard, levels 15 to 50)
+  - Better Off Buried: Gudlor, Huginfell (Midgard, levels 27 to 50)
+  - Uncle Thulin: Achae Smith, Fort Gwyntell (Albion, levels 25 to 50)
+  - Cleric Mulgrut: Hugh Gallen, Prydwen Keep (Albion, levels 5 to 50). He also names Mulgrut's son, Durren, again;
+    he used to say your name instead.
+  - Tale of Druids: Vadri Pade, the Magic Shoppe in Camelot (Albion, levels 10 to 50). This quest has a copy for
+    every Albion class, 15 in all, and every one was broken.
+- Quest markers update when you level up. A quest giver whose quest opens at your new level shows its marker
+  straight away; it used to show nothing until you logged out and back in (Troya in Howth at level 2, for example).
+
+**The new client (0.36c)**
+- The Magic tab lists each specialization's spells by level, lowest first, as the original client does. They were
+  grouped by specialization but mixed by spell type.
+- Stable rides seat you on your mount. On horses you jittered beside and behind the horse, and on flying routes
+  (gryphons, amphiteres) the mount jumped between positions and turned wildly during the flight.
+- The Cabalist's simulacrums look as they do in the original client: smooth, marble-tinted stone with their belt,
+  face and muscles. They were drawn grainy, with their detail texture stretched and repeated over the body.
+- Ghostly NPCs (Spiritmaster pets, frost spectres, the spectral snake, forest skrats) no longer flicker between dark
+  and bright white, even when several of them move about together, and they keep their colours under the ghostly look.
+- Half Ogre, Frostalf and Shar NPCs (Elizabeth the Smith in Mularn and every other NPC of those races) are drawn as
+  their races in their outfits, like every other race. They were one old model with a single skin over every part.
+- The release window when you die has the original client's four choices: release (to your bind point), release to
+  the city, to your house, and to your bind, with the countdown bar. There was a single release button.
+- Monsters stand, fly and hover at their proper height. Low-flying giant cicadas, skadedjur and terror birds were
+  sunk halfway into the ground, hovering monsters such as cold lights sat on the ground, and a flying monster's body
+  stayed in the air when it died; it now falls to the ground.
+- The training window (at a trainer or with /train) previews what each specialization teaches, as the original
+  client does: click a specialization and a panel beside the window lists its spells, styles and abilities with
+  their icons and the level each comes at, the ones you know dimmed and the next level's in gold.
+- Combat styles leave their colored trail behind the weapon the way the original client draws it: one smooth streak
+  that follows the swing as it happens. It was drawn late and choppy, as a few separate copies of the weapon.
+
+## 0.36 / 0.36b / 0.36c — 2026-10-16
+
+Everything added since 0.35, in one complete download, and a new game client. The overview is in
+[docs/RELEASE-0.36.md](docs/RELEASE-0.36.md); every change is listed below.
+
+**Download and setup**
+- Three editions of the same game on the same server:
+  - **0.36b** includes the Sluaghbinder.
+  - **0.36** has the classic class list only.
+  - **0.36c** is 0.36b or 0.36 with a second, new client added (see below).
+- One small downloader zip per edition: unzip it and double-click the `.cmd` inside. It fetches the game in
+  checked parts, as in 0.35, and continues where it stopped if you run it again.
+- Every install gets its own account on the first ENTER REALM, an empty world for its own bots, default launcher
+  settings and a client settings profile that is new for 0.36. Every keep, relic and battleground keep starts with
+  its original owner and level, and every keep door whole.
+- The progress transfer tool now also imports **0.35 and 0.35b** saves, as well as every earlier version.
+  See [docs/TRANSFER-PROGRESS.md](docs/TRANSFER-PROGRESS.md).
+- Every database and client change listed below is already in the download.
+
+**The new client (0.36c)**
+- A second game client for the same game, built in Godot 4. The zones, buildings, characters, monsters, spell
+  effects, sounds, music and interface are converted from the original client's own files, with textures upscaled
+  4x. It has the 1.65-era interface (quickbars, map and war map, quest journal, group and raid windows, pet window,
+  trainer, merchants, the Realm Exchange), WoW-style movement, rebindable keys and graphics presets.
+- It shares everything with the original client: the same server, account, characters, bots and world. A 0.36c
+  folder has both: **START OFFLINE DAOC.cmd** plays with the original client, **START OFFLINE DAOC - NEW
+  CLIENT.cmd** with the new one. Use one launcher at a time.
+- **DOWNLOAD-AND-PLAY-v0.36c.cmd** asks for 0.36b or 0.36, installs that complete game and then the new client in
+  one go. **ADD-NEW-CLIENT-TO-0.36-OR-0.36b.cmd** adds the new client to an existing 0.36b or 0.36 folder without
+  changing its saves.
+- On a 0.36 game (classic classes only) the new client's character creation offers the classic classes only: the
+  launcher tells it the game's class setting (`--custom-class=off`).
+- The new client's download comes in independent, checked parts: each is unpacked and deleted before the next, so
+  the install never needs twice its size on disk.
+- It needs a graphics card that supports Vulkan or DirectX 12. It does not need the .NET Framework 3.5 feature.
+- Its source code is in [source/new-client](source/new-client); see [docs/NEW-CLIENT.md](docs/NEW-CLIENT.md).
 
 **Bots and raids**
 - Forced Darkness Falls raids start again for all three realms. A quest monster added to Darkness Falls with the
@@ -135,8 +229,54 @@ These changes are made and will be in the 0.36 / 0.36b download. Until then, 0.3
 - Bots walking a long way to a town teleporter no longer give up while they are still getting closer.
 - Fewer server-wide hitches during Darkness Falls raids. Every raider whose post was not in direct reach re-ran the
   same large route search on every AI turn (about a second each); the answer is now shared and remembered.
+- A marching army that has not moved for four minutes pushes on for two: the leader stops fighting and walks, and the
+  others only fight back when attacked. Marchers also stop joining fights against enemies they cannot reach. Midgard's
+  army for Dun Dagda fought for over 40 minutes on one ridge in Emain Macha, mostly against Hibernians far below it.
+- Bot rams and trebuchets attack a keep's doors in the right order at keeps with ten or more doors. Doors 10 and 11 of
+  a relic keep were read as doors 0 and 1, so the rams went for an inner door beside the keep while the gate stood and
+  never found a place to set up.
+- A raid started from the launcher ends that realm's automatic raids that have not started yet, so they no longer
+  take the bots it needs. An automatic Summoner's Hall rally held 141 of the 200 bots a forced Caer Sidi raid needed.
+- Raiders who die inside an epic dungeon release at the raid's rally town (for example Fort Gwyntell for Caer Sidi)
+  instead of their capital, and come straight back. Caer Sidi's raid was down to 67 of 300 by the time it reached
+  Bane of Hope.
+- Bots take Caer Sidi's lift between floors in one step. They used to stop halfway up and hang between the floors,
+  cut off from the raid.
+- Epic dungeon raids fight the helpers a boss fight spawns (healers, summoned adds) before the boss itself.
+- Olcasgean's fight in Galladoria now starts when the bot raid reaches the waterfall bridge. The hidden script that
+  starts it (and other hidden encounter scripts like it) only ran while someone stood close to it, and it sits far
+  from the bridge, so the raid waited there for an hour and the fight never began. A bot raid anywhere on the bridge
+  starts it; players still start it from the usual spot.
+- Galladoria's Earthmenders heal only the Corrupt Primal of Earth, not each other. Healing each other, none of the
+  four could ever be brought down.
+- Soul Reckoner in Caer Sidi can be hurt anywhere in his hall and just outside it. Pulled a short way out of the room,
+  he took no damage at all.
+- With these changes bot raids killed Hurionthex in Galladoria for the first time (three times since), started the
+  Olcasgean fight for the first time, finished Tuscaran Glacier twice more, and Midgard's relic army reached Dun Dagda
+  and brought its gate down to 3%.
+- Relic sieges gather their army for longer (up to 85 minutes) while it is short of 120. An army of 98 reached Dun
+  Dagda with about 60, and the relic guards and defenders killed them in four minutes; an army of 135 had brought the
+  gate down to 3%.
+- Caer Sidi's horsemen (Fames, Morbus, Funus) no longer heal to full the moment they are pulled past the edge of
+  their area. They give up the fight and walk back, keeping the damage they have taken. This affected players too.
+- Apocalypse fights a bot raid properly after his flights to the ceiling. He only picked up players again afterwards,
+  so against bots he found nobody to fight and reset to full health.
+- Bot raids shoot down flying monsters within reach of their spells and bows. Galladoria's Corrupt Primal of Air
+  circles high above the floor and never fights back, so bots left it alone, and Olcasgean only wakes when all four
+  primals are dead.
+- One bot stuck on a bad spot no longer freezes the server. A bot whose route kept failing in the same place was moved
+  a short way off, walked back and failed again, every few seconds, and each try ran a search that froze the whole
+  game for 2 to 9 seconds: every bot slowed to a crawl and players were rubberbanded. Now a third failure in the same
+  spot sends the bot somewhere safe, and the search near the Albion and Hibernia starter dungeons is capped and
+  remembers its answer.
 
 **Server**
+- Fixed a slow memory leak that made long sessions stutter. Every time the server saved something (a bot, an item, a
+  character) it kept the previous save as well, and the one before that, without end. With 6,000 bots the memory in
+  use grew by 250-500 MB an hour, and after many hours the server froze for 2-3 seconds at a time.
+- Dead pets no longer stay in memory. A monster that had fought a pet kept it on its list of enemies until it fought
+  again, so idle monsters held thousands of dead pets (9,111 Theurgist earth pets in one test). A pet now leaves those
+  lists when it is gone.
 - NPCs no longer stay invisible after a teleport. Sometimes, after teleporting with companions, every NPC in a
   large area around you was invisible until you walked away and came back. The server sends each NPC to the game
   once, and the game could miss them while it was still loading after the jump. The server now sends everything
@@ -246,11 +386,14 @@ These changes are made and will be in the 0.36 / 0.36b download. Until then, 0.3
 **Launcher**
 - The note beside "Make Me a GM" on the Options tab now also says that monsters will not attack you while
   /gmstealth is on.
+- The launcher has a new-client mode for 0.36c: the copy in new-client\runtime starts the new client and runs the
+  game's own server (named in server_root.txt), so both clients use one account, one bot roster and one world. It
+  shows VERSION 0.36c.
 
 ## 0.35 / 0.35b — 2026-10-08
 
 Everything added since 0.34, in one complete download. The overview is in
-[docs/RELEASE-0.35.md](docs/RELEASE-0.35.md); every change is listed below.
+[docs/history/RELEASE-0.35.md](docs/history/RELEASE-0.35.md); every change is listed below.
 
 **Download and setup**
 - One complete download in checked parts, with two editions, as in 0.34:

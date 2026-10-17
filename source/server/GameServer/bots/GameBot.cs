@@ -1081,6 +1081,12 @@ namespace DOL.GS
                 if (releaseZone == null || !AutonomousRealmBoundary.Allows(Realm, releaseRegion, releaseZone.ID))
                     release = null;
             }
+            if (release == null && IsAutonomousWorldBot && returnToParty &&
+                AutonomousRealmRaid.TryRaidRelease(this, out ushort hubRegion, out Point3D hub))
+            {
+                releaseRegion = hubRegion;
+                release = hub;
+            }
             if (release == null && IsAutonomousWorldBot)
             {
                 var capital = AutonomousStuckWatchdog.SafeCapitalFor(Realm);
@@ -1577,8 +1583,8 @@ namespace DOL.GS
         {
             if (!IsAutonomousWorldBot || amount <= 0)
                 return;
-            AutonomousRealmPoints += amount;
             WorldSnapshotService.EmitRpGain(this, amount);
+            AutonomousRealmPoints += amount;
             RealmLevel = Math.Max(RealmLevel, AutonomousBotRealmPointRewards.RealmLevelFor(AutonomousRealmPoints));
             AutonomousStuckWatchdog.MarkProgress(this, eAutonomousProgressKind.RealmPoints);
             MarkAutonomousStateDirty();
@@ -1594,8 +1600,16 @@ namespace DOL.GS
             if (arguments != null)
                 WorldSnapshotService.EmitXpGain(this, arguments.ExpTotal, arguments.XPSource.ToString());
 
-            if (!IsAutonomousWorldBot || arguments == null || arguments.ExpTotal <= 0 || Level >= MaxLevel)
+            if (!IsAutonomousWorldBot || arguments == null || arguments.ExpTotal <= 0)
                 return;
+            if (Level >= MaxLevel)
+            {
+                // The cap discards the experience, but a kill that earned it is still proof the bot is working: a
+                // level-50 caster or pet class farming from one spot was "rescued" to its capital every fifteen
+                // minutes (241 of 268 such recoveries in run 2026-10-13 were level 50).
+                AutonomousStuckWatchdog.MarkProgress(this, eAutonomousProgressKind.Experience);
+                return;
+            }
 
             long experienceGained = arguments.ExpTotal;
             long baseExperience = arguments.ExpBase;
