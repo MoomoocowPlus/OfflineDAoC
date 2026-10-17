@@ -115,6 +115,7 @@ namespace DOL.GS
                 }
 
                 GameBot bot = new(record, null);
+                bot.IsNcaPopulationProbe = true; // not population-controller managed
                 bot.Health = bot.MaxHealth;
                 bot.Mana = bot.MaxMana;
                 bot.Endurance = bot.MaxEndurance;

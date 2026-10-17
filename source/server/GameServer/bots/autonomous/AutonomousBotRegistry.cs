@@ -60,7 +60,12 @@ public static class AutonomousBotRegistry
 
     // A failed cross-region AddToWorld can briefly leave an entry inactive.
     // Population targets are counts of live actors, never dictionary slots.
-    public static int Count => Active.Values.Count(bot => bot?.ObjectState == GameObject.eObjectState.Active);
+    // NCA gym probes (IsNcaPopulationProbe) register for actuation but are
+    // excluded from population targets: desired counts roster records only.
+    private static bool CountsTowardPopulation(GameBot bot) =>
+        bot is { ObjectState: GameObject.eObjectState.Active, IsNcaPopulationProbe: false };
+
+    public static int Count => Active.Values.Count(CountsTowardPopulation);
 
     public static bool Contains(long botId) => Active.ContainsKey(botId);
 
@@ -85,7 +90,7 @@ public static class AutonomousBotRegistry
     }
 
     public static IReadOnlyDictionary<eRealm, int> CountByRealm() => Active.Values
-        .Where(bot => bot?.ObjectState == GameObject.eObjectState.Active)
+        .Where(CountsTowardPopulation)
         .GroupBy(bot => bot.Realm)
         .ToDictionary(group => group.Key, group => group.Count());
 

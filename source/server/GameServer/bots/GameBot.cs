@@ -2311,6 +2311,10 @@ namespace DOL.GS
         /// Loads an ownerless autonomous character from its persistent record.
         /// No generated equipment and no field auto-training are allowed here.
         /// </summary>
+        /// <summary>Excluded from AutonomousBotRegistry population counts
+        /// (set by NcaTestBot for its gym probes).</summary>
+        public bool IsNcaPopulationProbe { get; set; }
+
         public GameBot(OfflineWorldBotRecord record) : this(record, null)
         {
         }
@@ -2329,6 +2333,11 @@ namespace DOL.GS
                 record.Dirty = true;
             }
             IsAutonomousWorldBot = true;
+            // NCA gym probes set this after construction: they keep autonomous
+            // actuation (IsActive) but must not count toward the population
+            // controller's desired-vs-registered math (run8 blocker: 8 probes
+            // in the registry starved the 6 GymBot roster spawns).
+            IsNcaPopulationProbe = false;
             DatabaseID = record.BotId;
             InternalID = AutonomousBotEconomy.GetOwnerId(record.BotId);
             ClassId = (byte)record.ClassId;
