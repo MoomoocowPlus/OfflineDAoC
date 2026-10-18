@@ -25,6 +25,7 @@ namespace DOL.GS
         private static long _nextCampCaptureTick;
         private static long _campCapturedTick;
         private static Exception _campProjectionError;
+        private static int _lastLoggedCatalogCellCount;
         private readonly record struct ProjectionKey(Zone Zone, int X, int Y, int Z, long Revision);
         // Retain only the previous/current generation, never an ever-growing
         // location cache. Live counts and levels are rebuilt for every snapshot.
@@ -94,6 +95,8 @@ namespace DOL.GS
                     // result. A worker can never expose a partly built catalog.
                     CampCatalogCell[] published = _campProjected.Where(cell => cell != null).ToArray();
                     Volatile.Write(ref _campCatalog, published);
+                    if (published.Length != Interlocked.Exchange(ref _lastLoggedCatalogCellCount, published.Length))
+                        Log.Info($"camp catalog: {published.Length} cells");
                     AutonomousDungeonPopulationPolicy.PublishCatalog(published
                         .Where(cell => cell.IsDungeon)
                         .Select(cell => (cell.Id, cell.RegionId, cell.LiveMobCount)));

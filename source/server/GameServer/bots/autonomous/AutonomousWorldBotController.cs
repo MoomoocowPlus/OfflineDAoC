@@ -3527,7 +3527,10 @@ namespace DOL.GS
                 foreach (AutonomousCapnBryGoalCatalog.Entry entry in AutonomousCapnBryGoalCatalog.Entries)
                 {
                     if (AutonomousAuditedCampPolicy.UsesLiveAnchor(entry.RegionId, entry.Name)) continue;
-                    Zone zone = WorldMgr.GetZone(entry.ZoneId);
+                    // Pruned gym worlds lack most zone rows; GetZone logs an
+                    // error per missing ID, so consult the zone table directly.
+                    if (!WorldMgr.Zones.TryGetValue(entry.ZoneId, out Zone zone))
+                        continue;
                     if (zone?.IsDungeon == true) continue; // Audited dungeon corridors are added below.
                     if (zone?.ZoneRegion == null || zone.ZoneRegion.ID != entry.RegionId ||
                         !AutonomousCapnBryGoalCatalog.IsClassicOrShroudedIslesExpansion(zone.ZoneRegion.Expansion))
