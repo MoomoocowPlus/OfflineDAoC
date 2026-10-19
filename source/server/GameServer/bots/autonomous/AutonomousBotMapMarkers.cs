@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using DOL.Events;
 using DOL.Logging;
@@ -179,5 +180,11 @@ public static class AutonomousBotMapMarkers
         return dx * dx + dy * dy >= threshold * threshold;
     }
 
-    public static bool HasChangedFloorHeight(int previousZ, int currentZ) => previousZ != currentZ;
+    [UnmanagedCallersOnly] // daoc_host hostfxr PoC entrypoint (pure predicate; int not bool: bool is non-blittable here)
+    private static int HasChangedFloorHeightNative(int previousZ, int currentZ) => previousZ != currentZ ? 1 : 0;
+
+    public static bool HasChangedFloorHeight(int previousZ, int currentZ)
+    {
+        return previousZ != currentZ; // ponytail: duplicated for UnmanagedCallersOnly (CS8901)
+    }
 }
