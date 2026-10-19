@@ -3,10 +3,21 @@
 The newest version is first. For the full detail of every earlier update, see
 [docs/history/CHANGELOG-0.3-to-0.32b.md](docs/history/CHANGELOG-0.3-to-0.32b.md).
 
-## 0.37 / 0.37b (not released yet)
+## 0.37 / 0.37b / 0.37c — 2026-10-18
 
-Changes made after 0.36 are listed here as they are made, and will be in the 0.37 / 0.37b download. Until then,
-0.36 / 0.36b / 0.36c is the latest release.
+The first version that comes as an update to 0.36: the overview is in [docs/RELEASE-0.37.md](docs/RELEASE-0.37.md);
+every change is listed below.
+
+**Updating and installing**
+- One downloader zip per edition, with one question: **1 = Update my game** (0.36, 0.36b or 0.36c) downloads and
+  applies only the update; **2 = New install** installs the complete 0.36 game and updates it.
+- The update finds the edition and the new client by itself, checks that every file it replaces is as installed,
+  backs up everything it replaces (and the database) in `patch-backups`, updates the world data without touching
+  saves (a world row is changed only if it is still as released), and puts everything back if anything fails.
+- If game files it would replace were changed, it lists them, changes nothing, and offers a fresh 0.37 in a new
+  folder with your progress brought over by the progress transfer tool.
+- The 0.37c downloader also offers to add the new client to a game that doesn't have it yet.
+- The launcher shows VERSION 0.37, 0.37b or 0.37c; the progress transfer tool imports 0.36 / 0.36b saves too.
 
 **Guilds**
 - You can form a guild on your own. Stand near a Guild Registrar (Brit in Jordheim, Lord Christopher in Camelot,
@@ -102,6 +113,36 @@ Changes made after 0.36 are listed here as they are made, and will be in the 0.3
   teleporter at once, and a trip the bot is led away from (by its party) is dropped without blaming the teleporter.
 - Battleground stormers turn for the keep gate, and then for the lord, the moment their step changes, instead of
   first finishing the walk they were on.
+- Siege armies raise their fallen during the battle. Healers of the attacking realm raise a fallen comrade near them
+  once nothing has hit them for a few seconds and no enemy stands by the body, as players did from the back line.
+  Before, they raised only when out of combat, which at a keep under siege never happened: the dead waited for a
+  raise, then walked back from their realm's frontier, and the army at Dun Dagda melted away.
+- Galladoria: raids no longer stand round a monster that a pet class is charming (a "grogan" held 230 raiders for
+  four minutes), no longer chase the Watery Vortexes over the water primal's pool (out of reach, back every six
+  minutes, and they wiped most of the raid), and send idle raiders onto a target that only a handful are fighting
+  (the Guardian Earthmender took 20 minutes with one to seven raiders on it while dozens stood by).
+- Siege crews set up rams past the wrecks of broken engines. After Dun Dagda's outer gate fell, the wrecks of the
+  first rams blocked every spot in front of the Relic Gate, so no new ram could be placed.
+- Raid parties that find no free spot at the raid's next stop walk there anyway instead of waiting where they were;
+  and a raid boss with a very large health pool is no longer given up as "taking no damage" while a few raiders
+  wear it down (Galladoria's Corrupt Primal of Fire).
+- Party members keep walking with their leader instead of reaching the spot they were heading for and pausing
+  until their next step: they now aim a little further ahead of a walking leader.
+- Bots on their way to Dun Lamfhota no longer bounce between Emain Macha and Breifine. Coming into Breifine they
+  were taken to be on a cut-off ledge and sent back to Emain Macha, then into Breifine again, over and over.
+- Every party of a dragon raid can reach its spot round the lair. One of Cuuldurach's 38 staging spots lay on
+  ground the route planner did not link to the lair, so the party sent there was routed out through Shannon
+  Estuary and never arrived. A full check of every dragon, relic keep, Apocalypse and Olcasgean route found no
+  other spot bots cannot reach.
+- Caer Sidi: the raid keeps climbing to the final encounter. The way up is long, and the raid used to give up the
+  climb after three minutes and fall back.
+- Bots of any task can leave their realm's portal keep through its door (136 Hibernians stuck inside Hibernia's
+  portal keep in Odin's Gate kept giving up their routes).
+- Bots crossing a zone border find a way where all the best-looking crossings lead into dead ends, such as sealed
+  tower rooms at Vindsaul Faste coming from Yggdra Forest. Routes that already worked are unchanged (checked on
+  360 recorded bot trips).
+- Less memory churn on a full server: a once-a-minute database check of every retired bot's commands now looks at
+  each one once, and pet classes choose their pet buff and heal without building lists every turn.
 - Galladoria: the Organic-Energy Mechanism no longer breaks spell casting on the server. It casts its damage shield
   each time it is hit, and with a raid hitting it at once these casts overran the spell queue (an error on every hit,
   42 in one fight), so its fight never played out. Every scripted monster that casts when struck is fixed with it.
@@ -149,7 +190,7 @@ Changes made after 0.36 are listed here as they are made, and will be in the 0.3
 - Guards fight a quest monster that wanders far from its home, as the Vindsaul gate guards fought Fjall and his
   friends. Quest monsters that live among guards, such as the thieves inside Camelot, are still left to you.
 
-**The new client (0.36c)**
+**The new client (0.37c)**
 - The Magic tab lists each specialization's spells by level, lowest first, as the original client does. They were
   grouped by specialization but mixed by spell type.
 - Stable rides seat you on your mount. On horses you jittered beside and behind the horse, and on flying routes
