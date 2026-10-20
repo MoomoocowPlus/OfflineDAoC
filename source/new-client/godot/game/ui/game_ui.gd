@@ -530,12 +530,12 @@ func _refresh_target_window() -> void:
 func _target_command(cmd: String) -> void:
 	if cmd == "attack":
 		PlayerData.attack_toggle_requested.emit()
-	elif Server.active:                                     # the server's commands, as the client's buttons sent them
-		Server.command("/" + cmd)
+	elif cmd in ["face", "follow", "stick"]:               # the client's own commands, in the server's game too: the
+		PlayerData.track_requested.emit(cmd)                # server has none of them ("No such command (/follow)",
+	elif Server.active:                                     # 2026-10-17); typed /follow already went this way
+		Server.command("/" + cmd)                           # the server's commands, as the client's buttons sent them
 	elif cmd == "invite":
 		PlayerData.invite_requested.emit("")
-	elif cmd in ["face", "follow", "stick"]:
-		PlayerData.track_requested.emit(cmd)
 	else:
 		message("You can't do that here.", "system")
 
@@ -1175,7 +1175,8 @@ func _refresh_effects() -> void:
 		_effect_box(50, 0, "CONSTITUTION LOST: %d (A HEALER CAN RESTORE IT)" % PlayerData.con_lost, -1)
 	var effs := _player_effects()
 	for i in effs.size():
-		_effect_box(int(effs[i].icon), int(effs[i].border), String(effs[i].name).to_upper(), i, int(effs[i].get("fx", -1)))
+		_effect_box(int(effs[i].icon), int(effs[i].border), String(effs[i].name).to_upper(), i, int(effs[i].get("fx", -1)),
+				bool(effs[i].get("disabled", false)))
 	_tick_effects()
 
 
@@ -1206,7 +1207,12 @@ class EffectBox extends Control:
 		return null if d.is_empty() else ItemTooltip.text_box(String(d.caption), d.lines)
 
 
-func _effect_box(icon: int, border: int, tip: String, index: int, fx := -1) -> void:
+## An overridden buff / an immunity (UpdateIcons' third byte, bit 1): game.dll 0x4b88a5 draws its icon in this colour,
+## every other one in white (owner 2026-10-19: two of the same buff both looked active).
+const EFFECT_DISABLED := Color(255 / 255.0, 35 / 255.0, 97 / 255.0)
+
+
+func _effect_box(icon: int, border: int, tip: String, index: int, fx := -1, disabled := false) -> void:
 	var box := EffectBox.new()
 	box.fx = fx
 	box.title = tip
@@ -1218,6 +1224,8 @@ func _effect_box(icon: int, border: int, tip: String, index: int, fx := -1) -> v
 	ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	ic.size = Vector2(EFFECT_ICON, EFFECT_ICON)
 	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if disabled:
+		ic.self_modulate = EFFECT_DISABLED                   # (self_modulate: the blink keeps using modulate.a)
 	box.add_child(ic)
 	if border >= 0:
 		var b := TextureRect.new()
